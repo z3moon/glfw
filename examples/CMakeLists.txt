@@ -34,6 +34,7 @@ add_executable(sharing WIN32 MACOSX_BUNDLE sharing.c ${ICON} ${GLAD_GL})
 add_executable(splitview WIN32 MACOSX_BUNDLE splitview.c ${ICON} ${GLAD_GL})
 add_executable(triangle-opengl WIN32 MACOSX_BUNDLE triangle-opengl.c ${ICON} ${GLAD_GL})
 add_executable(triangle-opengles WIN32 MACOSX_BUNDLE triangle-opengles.c ${ICON} ${GLAD_GLES2})
+add_executable(triangle-multiview-opengles WIN32 MACOSX_BUNDLE triangle-multiview-opengles.c ${ICON} ${GLAD_GLES2})
 add_executable(wave WIN32 MACOSX_BUNDLE wave.c ${ICON} ${GLAD_GL})
 add_executable(windows WIN32 MACOSX_BUNDLE windows.c ${ICON} ${GLAD_GL})
 
@@ -43,7 +44,7 @@ if (RT_LIBRARY)
 endif()
 
 set(GUI_ONLY_BINARIES boing gears heightmap particles sharing splitview
-    triangle-opengl triangle-opengles wave windows)
+    triangle-opengl triangle-opengles triangle-multiview-opengles wave windows)
 set(CONSOLE_BINARIES offscreen)
 
 set_target_properties(${GUI_ONLY_BINARIES} ${CONSOLE_BINARIES} PROPERTIES
@@ -68,6 +69,7 @@ if (APPLE)
     set_target_properties(sharing PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "Sharing")
     set_target_properties(triangle-opengl PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "OpenGL Triangle")
     set_target_properties(triangle-opengles PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "OpenGL ES Triangle")
+    set_target_properties(triangle-multiview-opengles PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "OpenGL ES Triangle Multiview")
     set_target_properties(splitview PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "SplitView")
     set_target_properties(wave PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "Wave")
     set_target_properties(windows PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "Windows")
