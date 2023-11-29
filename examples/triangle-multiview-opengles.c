@@ -110,6 +110,28 @@ int main(void)
     gladLoadGLES2(glfwGetProcAddress);
     glfwSwapInterval(1);
 
+    // Check if multivew extensions are available.
+    const GLubyte* extensions = glGetString(GL_EXTENSIONS);
+    char* found_extension = strstr((const char*)extensions, "GL_OVR_multiview");
+    if (NULL == found_extension)
+    {
+        fprintf(stderr, "OpenGL ES 3.0 implementation does not support GL_OVR_multiview extension.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // glFramebufferTextureMultiviewOVR function may not be available in the headers even though
+    // the extension is supported. Use `eglGetProcAddress` to retrieve the function.
+    // We should use `glfwGetProcAddress` instead for glfw.
+    typedef void (*PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)(GLenum, GLenum, GLuint, GLint, GLint, GLsizei);
+    PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR glFramebufferTextureMultiviewOVR;
+    glFramebufferTextureMultiviewOVR =
+        (PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)glfwGetProcAddress("glFramebufferTextureMultiviewOVR");
+    if (!glFramebufferTextureMultiviewOVR)
+    {
+        fprintf(stderr, "Can not get proc address for glFramebufferTextureMultiviewOVR.\n");
+        exit(EXIT_FAILURE);
+    }
+
     GLuint vertex_buffer;
     glGenBuffers(1, &vertex_buffer);
     glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
