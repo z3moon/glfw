@@ -33,6 +33,13 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdbool.h>
+
+const int kWidth = 640;
+const int kHeight = 480;
+
+typedef void (*PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)(GLenum, GLenum, GLuint, GLint, GLint, GLsizei);
+PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR glFramebufferTextureMultiviewOVR;
 
 typedef struct Vertex
 {
@@ -80,6 +87,42 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
         glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
 
+GLuint frameBufferTextureId;
+GLuint frameBufferObjectId;
+GLuint frameBufferDepthTextureId;
+
+static bool setupFBO(int width, int height)
+{
+    // Create array texture
+    glGenTextures(1, &frameBufferTextureId);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferTextureId);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, width, height, 2);
+    // Create FrameBuffer object
+    glGenFramebuffers(1, &frameBufferObjectId);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufferObjectId);
+    // Attach texture to the framebuffer
+    glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        frameBufferTextureId, 0, 0, 2);
+    // Create array depth texture
+    glGenTextures(1, &frameBufferDepthTextureId);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferDepthTextureId);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_DEPTH_COMPONENT24, width, height, 2);
+    // Attach depth texture to the framebuffer
+    glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+        frameBufferDepthTextureId, 0, 0, 2);
+    // Check FBO is OK
+    GLenum result = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+    if (result != GL_FRAMEBUFFER_COMPLETE)
+    {
+        fprintf(stderr, "Framebuffer incomplete at %s:%i\n", __FILE__, __LINE__);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        return false;
+    }
+    return true;
+}
+
 int main(void)
 {
     glfwSetErrorCallback(error_callback);
@@ -92,11 +135,11 @@ int main(void)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
 
-    GLFWwindow* window = glfwCreateWindow(640, 480, "OpenGL ES 2.0 Triangle (EGL)", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(kWidth, kHeight, "OpenGL ES 2.0 Triangle (EGL)", NULL, NULL);
     if (!window)
     {
         glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_NATIVE_CONTEXT_API);
-        window = glfwCreateWindow(640, 480, "OpenGL ES 2.0 Triangle", NULL, NULL);
+        window = glfwCreateWindow(kWidth, kHeight, "OpenGL ES 2.0 Triangle", NULL, NULL);
         if (!window)
         {
             glfwTerminate();
@@ -122,13 +165,16 @@ int main(void)
     // glFramebufferTextureMultiviewOVR function may not be available in the headers even though
     // the extension is supported. Use `eglGetProcAddress` to retrieve the function.
     // We should use `glfwGetProcAddress` instead for glfw.
-    typedef void (*PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)(GLenum, GLenum, GLuint, GLint, GLint, GLsizei);
-    PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR glFramebufferTextureMultiviewOVR;
     glFramebufferTextureMultiviewOVR =
         (PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)glfwGetProcAddress("glFramebufferTextureMultiviewOVR");
     if (!glFramebufferTextureMultiviewOVR)
     {
         fprintf(stderr, "Can not get proc address for glFramebufferTextureMultiviewOVR.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (!setupFBO(kWidth, kHeight)) {
+        fprintf(stderr, "Failed to setup FBO.\n");
         exit(EXIT_FAILURE);
     }
 
