@@ -24,7 +24,7 @@
 //========================================================================
 
 #define GLAD_GLES2_IMPLEMENTATION
-#include <glad/gles2.h>
+#include <glad/gles2_30.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
@@ -173,6 +173,7 @@ int main(void)
         exit(EXIT_FAILURE);
     }
 
+    // Setup FrameBuffer object
     if (!setupFBO(kWidth, kHeight)) {
         fprintf(stderr, "Failed to setup FBO.\n");
         exit(EXIT_FAILURE);
