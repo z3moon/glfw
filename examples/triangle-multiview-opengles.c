@@ -35,92 +35,628 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-const int kWidth = 640;
-const int kHeight = 480;
+#define M_PI       3.14159265358979323846   // pi
+#define LOGI(...) fprintf(stdout, __VA_ARGS__)
+#define LOGE(...) fprintf(stderr, __VA_ARGS__)
+#define GL_CHECK(x)                                         \
+    x;                                                      \
+    {                                                       \
+        GLenum glError = glGetError();                      \
+        if (glError != GL_NO_ERROR) {                       \
+            LOGE("glGetError() = %i (0x%.8x) at %s:%i\n",   \
+                glError, glError, __FILE__, __LINE__);      \
+            exit(EXIT_FAILURE);                             \
+        }                                                   \
+    }
+
+GLuint fboWidth = 1280;
+GLuint fboHeight = 720;
+GLuint screenWidth;
+GLuint screenHeight;
+GLuint frameBufferTextureId;
+GLuint frameBufferDepthTextureId;
+GLuint frameBufferObjectId;
+
+GLuint multiviewProgram;
+GLuint multiviewVertexLocation;
+GLuint multiviewVertexNormalLocation;
+GLuint multiviewModelViewProjectionLocation;
+GLuint multiviewModelLocation;
+
+GLuint texturedQuadProgram;
+GLuint texturedQuadVertexLocation;
+GLuint texturedQuadLowResTexCoordLocation;
+GLuint texturedQuadHighResTexCoordLocation;
+GLuint texturedQuadSamplerLocation;
+GLuint texturedQuadLayerIndexLocation;
+
+mat4x4 projectionMatrix[4];
+mat4x4 viewMatrix[4];
+mat4x4 viewProjectionMatrix[4];
+mat4x4 modelViewProjectionMatrix[4];
+mat4x4 modelMatrix;
+float angle = 0;
 
 typedef void (*PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)(GLenum, GLenum, GLuint, GLint, GLint, GLsizei);
 PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR glFramebufferTextureMultiviewOVR;
 
-typedef struct Vertex
-{
-    vec2 pos;
-    vec3 col;
-} Vertex;
+/* Multiview vertexShader */
+static const char multiviewVertexShader[] =
+"#version 300 es\n"
+"#extension GL_OVR_multiview : enable\n"
 
-static const Vertex vertices[3] =
-{
-    { { -0.6f, -0.4f }, { 1.f, 0.f, 0.f } },
-    { {  0.6f, -0.4f }, { 0.f, 1.f, 0.f } },
-    { {   0.f,  0.6f }, { 0.f, 0.f, 1.f } }
+"layout(num_views = 4) in;\n"
+
+"in vec3 vertexPosition;\n"
+"in vec3 vertexNormal;\n"
+"uniform mat4 modelViewProjection[4];\n"
+"uniform mat4 model;\n"
+"out vec3 v_normal;\n"
+
+"void main()\n"
+"{\n"
+"    gl_Position = modelViewProjection[gl_ViewID_OVR] * vec4(vertexPosition, 1.0);\n"
+"    v_normal = (model * vec4(vertexNormal, 0.0f)).xyz;\n"
+"}\n";
+
+/* Multiview fragmentShader */
+static const char multiviewFragmentShader[] =
+"#version 300 es\n"
+"precision highp float;\n"
+
+"in vec3 v_normal;\n"
+"out vec4 f_color;\n"
+
+"vec3 light(vec3 n, vec3 l, vec3 c)\n"
+"{\n"
+"    float ndotl = max(dot(n, l), 0.0);\n"
+"    return ndotl * c;\n"
+"}\n"
+
+"void main()\n"
+"{\n"
+"    vec3 albedo = vec3(0.95, 0.84, 0.62);\n"
+"    vec3 n = normalize(v_normal);\n"
+"    f_color.rgb = vec3(0.0);\n"
+"    f_color.rgb += light(n, normalize(vec3(1.0)), vec3(1.0));\n"
+"    f_color.rgb += light(n, normalize(vec3(-1.0, -1.0, 0.0)), vec3(0.2, 0.23, 0.35));\n"
+
+"    f_color.a = 1.0;\n"
+"}\n";
+
+/* Textured quad vertexShader */
+static const char  texturedQuadVertexShader[] =
+"#version 300 es\n"
+"in vec3 attributePosition;\n"
+"in vec2 attributeLowResTexCoord;\n"
+"in vec2 attributeHighResTexCoord;\n"
+"out vec2 vLowResTexCoord;\n"
+"out vec2 vHighResTexCoord;\n"
+"void main()\n"
+"{\n"
+"    vLowResTexCoord = attributeLowResTexCoord;\n"
+"    vHighResTexCoord = attributeHighResTexCoord;\n"
+"    gl_Position = vec4(attributePosition, 1.0);\n"
+"}\n";
+
+/* Textured quad fragmentShader */
+static const char texturedQuadFragmentShader[] =
+"#version 300 es\n"
+"precision mediump float;\n"
+"precision mediump int;\n"
+"precision mediump sampler2DArray;\n"
+"in vec2 vLowResTexCoord;\n"
+"in vec2 vHighResTexCoord;\n"
+"out vec4 fragColor;\n"
+"uniform sampler2DArray tex;\n"
+"uniform int layerIndex;\n"
+"void main()\n"
+"{\n"
+"    vec4 lowResSample = texture(tex, vec3(vLowResTexCoord, layerIndex));\n"
+"    vec4 highResSample = texture(tex, vec3(vHighResTexCoord, layerIndex + 2));\n"
+"    // Using squared distance to middle of screen for interpolating.\n"
+"    vec2 distVec = vec2(0.5) - vHighResTexCoord;\n"
+"    float squaredDist = dot(distVec, distVec);\n"
+"    // Using the high res texture when distance from center is less than 0.5 in texture coordinates (0.25 is 0.5 squared).\n"
+"    // When the distance is less than 0.2 (0.04 is 0.2 squared), only the high res texture will be used.\n"
+"    float lerpVal = smoothstep(-0.25, -0.04, -squaredDist);\n"
+"    fragColor = mix(lowResSample, highResSample, lerpVal);\n"
+"}\n";
+
+/* Vertices for cube drawn with multiview. */
+GLfloat multiviewVertices[] =
+{   // Front face
+    -1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f,  1.0f, -1.0f,
+    -1.0f,  1.0f, -1.0f,
+
+    // Right face
+     1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f, -1.0f,
+
+     // Back face
+      1.0f, -1.0f,  1.0f,
+     -1.0f, -1.0f,  1.0f,
+     -1.0f,  1.0f,  1.0f,
+      1.0f,  1.0f,  1.0f,
+
+      // Left face
+      -1.0f, -1.0f,  1.0f,
+      -1.0f, -1.0f, -1.0f,
+      -1.0f,  1.0f, -1.0f,
+      -1.0f,  1.0f,  1.0f,
+
+      // Top face
+      -1.0f,  1.0f, -1.0f,
+       1.0f,  1.0f, -1.0f,
+       1.0f,  1.0f,  1.0f,
+      -1.0f,  1.0f,  1.0f,
+
+      // Bottom face
+       1.0f, -1.0f,  1.0f,
+      -1.0f, -1.0f,  1.0f,
+      -1.0f, -1.0f, -1.0f,
+       1.0f, -1.0f, -1.0f
 };
 
-static const char* vertex_shader_text =
-"#version 100\n"
-"precision mediump float;\n"
-"uniform mat4 MVP;\n"
-"attribute vec3 vCol;\n"
-"attribute vec2 vPos;\n"
-"varying vec3 color;\n"
-"void main()\n"
-"{\n"
-"    gl_Position = MVP * vec4(vPos, 0.0, 1.0);\n"
-"    color = vCol;\n"
-"}\n";
+/* Normals for cube drawn with multiview. */
+GLfloat multiviewNormals[] =
+{
+    // Front face
+    0.0f,  0.0f,  1.0f,
+    0.0f,  0.0f,  1.0f,
+    0.0f,  0.0f,  1.0f,
+    0.0f,  0.0f,  1.0f,
 
-static const char* fragment_shader_text =
-"#version 100\n"
-"precision mediump float;\n"
-"varying vec3 color;\n"
-"void main()\n"
-"{\n"
-"    gl_FragColor = vec4(color, 1.0);\n"
-"}\n";
+    // Right face
+    1.0f,  0.0f, 0.0f,
+    1.0f,  0.0f, 0.0f,
+    1.0f,  0.0f, 0.0f,
+    1.0f,  0.0f, 0.0f,
+
+    // Back face
+    0.0f,  0.0f, -1.0f,
+    0.0f,  0.0f, -1.0f,
+    0.0f,  0.0f, -1.0f,
+    0.0f,  0.0f, -1.0f,
+
+    // Left face
+    -1.0f,  0.0f, 0.0f,
+    -1.0f,  0.0f, 0.0f,
+    -1.0f,  0.0f, 0.0f,
+    -1.0f,  0.0f, 0.0f,
+
+    // Top face
+    0.0f,  1.0f, 0.0f,
+    0.0f,  1.0f, 0.0f,
+    0.0f,  1.0f, 0.0f,
+    0.0f,  1.0f, 0.0f,
+
+    // Bottom face
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f
+};
+
+/* Indices for cube drawn with multiview. */
+GLushort multiviewIndices[] =
+{
+    //Front face
+    0, 1, 2,
+    0, 2, 3,
+
+    // Right face
+    4, 5, 6,
+    4, 6, 7,
+
+    // Back face
+    8, 9, 10,
+    8, 10, 11,
+
+    // Left face
+    12, 13, 14,
+    12, 14, 15,
+
+    // Top face
+    16, 17, 18,
+    16, 18, 19,
+
+    // Bottom face
+    20, 21, 22,
+    20, 22, 23
+};
+
+/* Textured quad geometry */
+float texturedQuadCoordinates[] =
+{
+    -1.0f, -1.0f, 0.0f,
+     1.0f, -1.0f, 0.0f,
+     1.0f,  1.0f, 0.0f,
+
+    -1.0f, -1.0f, 0.0f,
+     1.0f,  1.0f, 0.0f,
+    -1.0f,  1.0f, 0.0f
+};
+
+/* Textured quad low resolution texture coordinates */
+float texturedQuadLowResTexCoordinates[] =
+{
+    0, 0,
+    1, 0,
+    1, 1,
+
+    0, 0,
+    1, 1,
+    0, 1
+};
+
+/* Textured quad high resolution texture coordinates */
+float texturedQuadHighResTexCoordinates[] =
+{
+    -0.5, -0.5,
+     1.5, -0.5,
+     1.5,  1.5,
+
+    -0.5, -0.5,
+     1.5,  1.5,
+    -0.5,  1.5
+};
+
+GLuint loadShader(GLenum shaderType, const char* shaderSource)
+{
+    GLuint shader = GL_CHECK(glCreateShader(shaderType));
+    if (shader != 0)
+    {
+        GL_CHECK(glShaderSource(shader, 1, &shaderSource, NULL));
+        GL_CHECK(glCompileShader(shader));
+        GLint compiled = 0;
+        GL_CHECK(glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled));
+        if (compiled != GL_TRUE)
+        {
+            GLint infoLen = 0;
+            GL_CHECK(glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen));
+
+            if (infoLen > 0)
+            {
+                char* logBuffer = (char*)malloc(infoLen);
+
+                if (logBuffer != NULL)
+                {
+                    GL_CHECK(glGetShaderInfoLog(shader, infoLen, NULL, logBuffer));
+                    LOGE("Could not Compile Shader %d:\n%s\n", shaderType, logBuffer);
+                    free(logBuffer);
+                    logBuffer = NULL;
+                }
+
+                GL_CHECK(glDeleteShader(shader));
+                shader = 0;
+            }
+        }
+    }
+
+    return shader;
+}
+
+GLuint createProgram(const char* vertexSource, const char* fragmentSource)
+{
+    GLuint vertexShader = loadShader(GL_VERTEX_SHADER, vertexSource);
+    if (vertexShader == 0)
+    {
+        return 0;
+    }
+
+    GLuint fragmentShader = loadShader(GL_FRAGMENT_SHADER, fragmentSource);
+    if (fragmentShader == 0)
+    {
+        return 0;
+    }
+
+    GLuint program = GL_CHECK(glCreateProgram());
+
+    if (program != 0)
+    {
+        GL_CHECK(glAttachShader(program, vertexShader));
+        GL_CHECK(glAttachShader(program, fragmentShader));
+        GL_CHECK(glLinkProgram(program));
+        GLint linkStatus = GL_FALSE;
+        GL_CHECK(glGetProgramiv(program, GL_LINK_STATUS, &linkStatus));
+        if (linkStatus != GL_TRUE)
+        {
+            GLint bufLength = 0;
+            GL_CHECK(glGetProgramiv(program, GL_INFO_LOG_LENGTH, &bufLength));
+            if (bufLength > 0)
+            {
+                char* logBuffer = (char*)malloc(bufLength);
+
+                if (logBuffer != NULL)
+                {
+                    GL_CHECK(glGetProgramInfoLog(program, bufLength, NULL, logBuffer));
+                    LOGE("Could not link program:\n%s\n", logBuffer);
+                    free(logBuffer);
+                    logBuffer = NULL;
+                }
+            }
+            GL_CHECK(glDeleteProgram(program));
+            program = 0;
+        }
+    }
+    return program;
+}
+
+bool setupFBO(int width, int height)
+{
+    // Create array texture
+    GL_CHECK(glGenTextures(1, &frameBufferTextureId));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferTextureId));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, width, height, 4));
+
+    /* Initialize FBO. */
+    GL_CHECK(glGenFramebuffers(1, &frameBufferObjectId));
+
+    /* Bind our framebuffer for rendering. */
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufferObjectId));
+
+    /* Attach texture to the framebuffer. */
+    GL_CHECK(glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        frameBufferTextureId, 0, 0, 4));
+
+    /* Create array depth texture */
+    GL_CHECK(glGenTextures(1, &frameBufferDepthTextureId));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferDepthTextureId));
+    GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_DEPTH_COMPONENT24, width, height, 4));
+
+    /* Attach depth texture to the framebuffer. */
+    GL_CHECK(glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+        frameBufferDepthTextureId, 0, 0, 4));
+
+    /* Check FBO is OK. */
+    GLenum result = GL_CHECK(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER));
+    if (result != GL_FRAMEBUFFER_COMPLETE)
+    {
+        LOGE("Framebuffer incomplete at %s:%i\n", __FILE__, __LINE__);
+        /* Unbind framebuffer. */
+        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+        return false;
+    }
+    return true;
+}
+
+bool setupGraphics(int width, int height)
+{
+    /*
+     * Make sure the required multiview extension is present.
+     */
+    const GLubyte* extensions = GL_CHECK(glGetString(GL_EXTENSIONS));
+    const char* found_extension = strstr((const char*)extensions, "GL_OVR_multiview");
+    if (NULL == found_extension)
+    {
+        LOGI("OpenGL ES 3.0 implementation does not support GL_OVR_multiview extension.\n");
+        exit(EXIT_FAILURE);
+    }
+    else
+    {
+        glFramebufferTextureMultiviewOVR =
+            (PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)glfwGetProcAddress("glFramebufferTextureMultiviewOVR");
+        if (!glFramebufferTextureMultiviewOVR)
+        {
+            LOGI("Can not get proc address for glFramebufferTextureMultiviewOVR.\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    /* Enable culling and depth testing. */
+    GL_CHECK(glDisable(GL_CULL_FACE));
+    GL_CHECK(glEnable(GL_DEPTH_TEST));
+    GL_CHECK(glDepthFunc(GL_LEQUAL));
+
+    /* Setting screen width and height for use when rendering. */
+    screenWidth = width;
+    screenHeight = height;
+
+    if (!setupFBO(fboWidth, fboHeight))
+    {
+        LOGE("Could not create multiview FBO");
+        return false;
+    }
+
+    /* Creating program for drawing textured quad. */
+    texturedQuadProgram = createProgram(texturedQuadVertexShader, texturedQuadFragmentShader);
+    if (texturedQuadProgram == 0)
+    {
+        LOGE("Could not create textured quad program");
+        return false;
+    }
+
+    /* Get attribute and uniform locations for textured quad program. */
+    texturedQuadVertexLocation = GL_CHECK(glGetAttribLocation(texturedQuadProgram, "attributePosition"));
+    texturedQuadLowResTexCoordLocation = GL_CHECK(glGetAttribLocation(texturedQuadProgram, "attributeLowResTexCoord"));
+    texturedQuadHighResTexCoordLocation = GL_CHECK(glGetAttribLocation(texturedQuadProgram, "attributeHighResTexCoord"));
+    texturedQuadSamplerLocation = GL_CHECK(glGetUniformLocation(texturedQuadProgram, "tex"));
+    texturedQuadLayerIndexLocation = GL_CHECK(glGetUniformLocation(texturedQuadProgram, "layerIndex"));
+
+    /* Creating program for drawing object with multiview. */
+    multiviewProgram = createProgram(multiviewVertexShader, multiviewFragmentShader);
+    if (multiviewProgram == 0)
+    {
+        LOGE("Could not create multiview program");
+        return false;
+    }
+
+    /* Get attribute and uniform locations for multiview program. */
+    multiviewVertexLocation = GL_CHECK(glGetAttribLocation(multiviewProgram, "vertexPosition"));
+    multiviewVertexNormalLocation = GL_CHECK(glGetAttribLocation(multiviewProgram, "vertexNormal"));
+    multiviewModelViewProjectionLocation = GL_CHECK(glGetUniformLocation(multiviewProgram, "modelViewProjection"));
+    multiviewModelLocation = GL_CHECK(glGetUniformLocation(multiviewProgram, "model"));
+
+    /*
+     * Set up the perspective matrices for each view. Rendering is done twice in each eye position with different
+     * field of view. The narrower field of view should give half the size for the near plane in order to
+     * render the center of the scene at a higher resolution. The resulting high resolution and low resolution
+     * images will later be interpolated to create an image with higher resolution in the center of the screen
+     * than on the outer parts of the screen.
+     * 1.5707963268 rad = 90 degrees.
+     * 0.9272952188 rad = 53.1301024 degrees. This angle gives half the size for the near plane.
+     */
+    mat4x4_perspective(projectionMatrix[0], 1.5707963268f, (float)width / (float)height, 0.1f, 100.f);
+    mat4x4_perspective(projectionMatrix[1], 1.5707963268f, (float)width / (float)height, 0.1f, 100.f);
+    mat4x4_perspective(projectionMatrix[2], 0.9272952188f, (float)width / (float)height, 0.1f, 100.f);
+    mat4x4_perspective(projectionMatrix[3], 0.9272952188f, (float)width / (float)height, 0.1f, 100.f);
+
+    GL_CHECK(glViewport(0, 0, width, height));
+
+    /* Setting up model view matrices for each of the */
+    vec3 leftCameraPos = { -1.5f, 0.0f, 5.0f };
+    vec3 rightCameraPos = { 1.5f, 0.0f, 5.0f };
+    vec3 lookAt = { 0.0f, 0.0f, 0.0f };
+    vec3 upVec = { 0.0f, 1.0f, 0.0f };
+    mat4x4_look_at(viewMatrix[0], leftCameraPos, lookAt, upVec);
+    mat4x4_look_at(viewMatrix[1], rightCameraPos, lookAt, upVec);
+    mat4x4_look_at(viewMatrix[2], leftCameraPos, lookAt, upVec);
+    mat4x4_look_at(viewMatrix[3], rightCameraPos, lookAt, upVec);
+
+    mat4x4_mul(viewProjectionMatrix[0], projectionMatrix[0], viewMatrix[0]);
+    mat4x4_mul(viewProjectionMatrix[1], projectionMatrix[1], viewMatrix[1]);
+    mat4x4_mul(viewProjectionMatrix[2], projectionMatrix[2], viewMatrix[2]);
+    mat4x4_mul(viewProjectionMatrix[3], projectionMatrix[3], viewMatrix[3]);
+
+    return true;
+}
+
+void renderToFBO(int width, int height)
+{
+    /* Rendering to FBO. */
+    GL_CHECK(glViewport(0, 0, width, height));
+
+    /* Bind our framebuffer for rendering. */
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferObjectId));
+
+    GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
+
+    /* Rotating the cube. */
+    float angleRad = M_PI * angle / 180.0f;
+    mat4x4_identity(modelMatrix);
+    mat4x4_rotate_Y(modelMatrix, modelMatrix, angleRad);
+    mat4x4_rotate_X(modelMatrix, modelMatrix, angleRad * 1.5f);
+
+    mat4x4_mul(modelViewProjectionMatrix[0], viewProjectionMatrix[0], modelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[1], viewProjectionMatrix[1], modelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[2], viewProjectionMatrix[2], modelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[3], viewProjectionMatrix[3], modelMatrix);
+
+    GL_CHECK(glUseProgram(multiviewProgram));
+
+    /* Upload vertex attributes. */
+    GL_CHECK(glVertexAttribPointer(multiviewVertexLocation, 3, GL_FLOAT, GL_FALSE, 0, multiviewVertices));
+    GL_CHECK(glEnableVertexAttribArray(multiviewVertexLocation));
+    GL_CHECK(glVertexAttribPointer(multiviewVertexNormalLocation, 3, GL_FLOAT, GL_FALSE, 0, multiviewNormals));
+    GL_CHECK(glEnableVertexAttribArray(multiviewVertexNormalLocation));
+
+    /* Upload model view projection matrices. */
+
+    GL_CHECK(glUniformMatrix4fv(multiviewModelViewProjectionLocation, 4, GL_FALSE, (const GLfloat*)&modelViewProjectionMatrix[0]));
+    GL_CHECK(glUniformMatrix4fv(multiviewModelLocation, 1, GL_FALSE, (const GLfloat*)& modelMatrix));
+
+    /* Draw a cube. */
+    GL_CHECK(glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, multiviewIndices));
+
+    /* Draw a translated cube. */
+    mat4x4 translatedModelMatrix;
+    mat4x4_translate(translatedModelMatrix, -3.5f, 0.f, 0.f);
+    mat4x4_mul(translatedModelMatrix, translatedModelMatrix, modelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[0], viewProjectionMatrix[0], translatedModelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[1], viewProjectionMatrix[1], translatedModelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[2], viewProjectionMatrix[2], translatedModelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[3], viewProjectionMatrix[3], translatedModelMatrix);
+    GL_CHECK(glUniformMatrix4fv(multiviewModelViewProjectionLocation, 4, GL_FALSE, (const GLfloat*)&modelViewProjectionMatrix[0]));
+    GL_CHECK(glUniformMatrix4fv(multiviewModelLocation, 1, GL_FALSE, (const GLfloat*)translatedModelMatrix));
+    GL_CHECK(glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, multiviewIndices));
+
+    /* Draw another translated cube. */
+    mat4x4_translate(translatedModelMatrix, 3.5f, 0.f, 0.f);
+    mat4x4_mul(translatedModelMatrix, translatedModelMatrix, modelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[0], viewProjectionMatrix[0], translatedModelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[1], viewProjectionMatrix[1], translatedModelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[2], viewProjectionMatrix[2], translatedModelMatrix);
+    mat4x4_mul(modelViewProjectionMatrix[3], viewProjectionMatrix[3], translatedModelMatrix);
+    GL_CHECK(glUniformMatrix4fv(multiviewModelViewProjectionLocation, 4, GL_FALSE, (const GLfloat*)&modelViewProjectionMatrix[0]));
+    GL_CHECK(glUniformMatrix4fv(multiviewModelLocation, 1, GL_FALSE, (const GLfloat*)translatedModelMatrix));
+    GL_CHECK(glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, multiviewIndices));
+
+    angle += 1;
+    if (angle > 360)
+    {
+        angle -= 360;
+    }
+
+    /* Go back to the backbuffer for rendering to the screen. */
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+}
+
+void renderFrame()
+{
+    /*
+     * Render the scene to the multiview texture. This will render to 4 different layers of the texture,
+     * using different projection and view matrices for each layer.
+     */
+    renderToFBO(fboWidth, fboHeight);
+
+    GL_CHECK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
+    GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
+
+    /*
+     * Render the multiview texture layers to separate viewports. Each viewport corresponds to one eye,
+     * and will use two different texture layers from the multiview texture, one with a wide field of view
+     * and one with a narrow field of view.
+     */
+    for (int i = 0; i < 2; i++)
+    {
+        glViewport(i * screenWidth / 2, 0, screenWidth / 2, screenHeight);
+
+        /* Use the texture array that was drawn to using multiview. */
+        GL_CHECK(glActiveTexture(GL_TEXTURE0));
+        GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferTextureId));
+
+        GL_CHECK(glUseProgram(texturedQuadProgram));
+
+        /* Upload vertex attributes. */
+        GL_CHECK(glVertexAttribPointer(texturedQuadVertexLocation, 3, GL_FLOAT, GL_FALSE, 0, texturedQuadCoordinates));
+        GL_CHECK(glEnableVertexAttribArray(texturedQuadVertexLocation));
+        GL_CHECK(glVertexAttribPointer(texturedQuadLowResTexCoordLocation, 2, GL_FLOAT,
+            GL_FALSE, 0, texturedQuadLowResTexCoordinates));
+        GL_CHECK(glEnableVertexAttribArray(texturedQuadLowResTexCoordLocation));
+        GL_CHECK(glVertexAttribPointer(texturedQuadHighResTexCoordLocation, 2, GL_FLOAT,
+            GL_FALSE, 0, texturedQuadHighResTexCoordinates));
+        GL_CHECK(glEnableVertexAttribArray(texturedQuadHighResTexCoordLocation));
+
+        /*
+         * Upload uniforms. The layerIndex is used to choose what layer of the array texture to sample from.
+         * The shader will use the given layerIndex and layerIndex + 2, where layerIndex gives the layer with
+         * the wide field of view, where the entire scene has been rendered, and layerIndex + 2 gives the layer
+         * with the narrow field of view, where only the center of the scene has been rendered.
+         */
+        GL_CHECK(glUniform1i(texturedQuadSamplerLocation, 0));
+        GL_CHECK(glUniform1i(texturedQuadLayerIndexLocation, i));
+
+        /* Draw textured quad using the multiview texture. */
+        GL_CHECK(glDrawArrays(GL_TRIANGLES, 0, 6));
+    }
+}
 
 static void error_callback(int error, const char* description)
 {
-    fprintf(stderr, "GLFW Error: %s\n", description);
+    LOGE("GLFW Error: %s\n", description);
 }
 
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GLFW_TRUE);
-}
-
-GLuint frameBufferTextureId;
-GLuint frameBufferObjectId;
-GLuint frameBufferDepthTextureId;
-
-static bool setupFBO(int width, int height)
-{
-    // Create array texture
-    glGenTextures(1, &frameBufferTextureId);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferTextureId);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, width, height, 2);
-    // Create FrameBuffer object
-    glGenFramebuffers(1, &frameBufferObjectId);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufferObjectId);
-    // Attach texture to the framebuffer
-    glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-        frameBufferTextureId, 0, 0, 2);
-    // Create array depth texture
-    glGenTextures(1, &frameBufferDepthTextureId);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferDepthTextureId);
-    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_DEPTH_COMPONENT24, width, height, 2);
-    // Attach depth texture to the framebuffer
-    glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-        frameBufferDepthTextureId, 0, 0, 2);
-    // Check FBO is OK
-    GLenum result = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
-    if (result != GL_FRAMEBUFFER_COMPLETE)
-    {
-        fprintf(stderr, "Framebuffer incomplete at %s:%i\n", __FILE__, __LINE__);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        return false;
-    }
-    return true;
 }
 
 int main(void)
@@ -135,11 +671,11 @@ int main(void)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
 
-    GLFWwindow* window = glfwCreateWindow(kWidth, kHeight, "OpenGL ES 2.0 Triangle (EGL)", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(fboWidth, fboHeight, "OpenGL ES 2.0 Triangle (EGL)", NULL, NULL);
     if (!window)
     {
         glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_NATIVE_CONTEXT_API);
-        window = glfwCreateWindow(kWidth, kHeight, "OpenGL ES 2.0 Triangle", NULL, NULL);
+        window = glfwCreateWindow(fboWidth, fboHeight, "OpenGL ES 2.0 Triangle", NULL, NULL);
         if (!window)
         {
             glfwTerminate();
@@ -153,79 +689,13 @@ int main(void)
     gladLoadGLES2(glfwGetProcAddress);
     glfwSwapInterval(1);
 
-    // Check if multivew extensions are available.
-    const GLubyte* extensions = glGetString(GL_EXTENSIONS);
-    char* found_extension = strstr((const char*)extensions, "GL_OVR_multiview");
-    if (NULL == found_extension)
-    {
-        fprintf(stderr, "OpenGL ES 3.0 implementation does not support GL_OVR_multiview extension.\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // glFramebufferTextureMultiviewOVR function may not be available in the headers even though
-    // the extension is supported. Use `eglGetProcAddress` to retrieve the function.
-    // We should use `glfwGetProcAddress` instead for glfw.
-    glFramebufferTextureMultiviewOVR =
-        (PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)glfwGetProcAddress("glFramebufferTextureMultiviewOVR");
-    if (!glFramebufferTextureMultiviewOVR)
-    {
-        fprintf(stderr, "Can not get proc address for glFramebufferTextureMultiviewOVR.\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Setup FrameBuffer object
-    if (!setupFBO(kWidth, kHeight)) {
-        fprintf(stderr, "Failed to setup FBO.\n");
-        exit(EXIT_FAILURE);
-    }
-
-    GLuint vertex_buffer;
-    glGenBuffers(1, &vertex_buffer);
-    glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    const GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertex_shader, 1, &vertex_shader_text, NULL);
-    glCompileShader(vertex_shader);
-
-    const GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragment_shader, 1, &fragment_shader_text, NULL);
-    glCompileShader(fragment_shader);
-
-    const GLuint program = glCreateProgram();
-    glAttachShader(program, vertex_shader);
-    glAttachShader(program, fragment_shader);
-    glLinkProgram(program);
-
-    const GLint mvp_location = glGetUniformLocation(program, "MVP");
-    const GLint vpos_location = glGetAttribLocation(program, "vPos");
-    const GLint vcol_location = glGetAttribLocation(program, "vCol");
-
-    glEnableVertexAttribArray(vpos_location);
-    glEnableVertexAttribArray(vcol_location);
-    glVertexAttribPointer(vpos_location, 2, GL_FLOAT, GL_FALSE,
-                          sizeof(Vertex), (void*) offsetof(Vertex, pos));
-    glVertexAttribPointer(vcol_location, 3, GL_FLOAT, GL_FALSE,
-                          sizeof(Vertex), (void*) offsetof(Vertex, col));
+    // Set up all necessary resources for multiview rendering.
+    setupGraphics(fboWidth, fboHeight);
 
     while (!glfwWindowShouldClose(window))
     {
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
-        const float ratio = width / (float) height;
-
-        glViewport(0, 0, width, height);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        mat4x4 m, p, mvp;
-        mat4x4_identity(m);
-        mat4x4_rotate_Z(m, m, (float) glfwGetTime());
-        mat4x4_ortho(p, -ratio, ratio, -1.f, 1.f, 1.f, -1.f);
-        mat4x4_mul(mvp, p, m);
-
-        glUseProgram(program);
-        glUniformMatrix4fv(mvp_location, 1, GL_FALSE, (const GLfloat*) &mvp);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        // Render multiview frames.
+        renderFrame();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -236,4 +706,3 @@ int main(void)
     glfwTerminate();
     exit(EXIT_SUCCESS);
 }
-
