@@ -49,8 +49,8 @@
         }                                                   \
     }
 
-GLuint fboWidth = 1280;
-GLuint fboHeight = 720;
+GLuint fboWidth = 1920;
+GLuint fboHeight = 1080;
 GLuint screenWidth;
 GLuint screenHeight;
 GLuint frameBufferTextureId;
@@ -115,11 +115,10 @@ static const char multiviewFragmentShader[] =
 
 "void main()\n"
 "{\n"
-"    vec3 albedo = vec3(0.95, 0.84, 0.62);\n"
 "    vec3 n = normalize(v_normal);\n"
 "    f_color.rgb = vec3(0.0);\n"
-"    f_color.rgb += light(n, normalize(vec3(1.0)), vec3(1.0));\n"
-"    f_color.rgb += light(n, normalize(vec3(-1.0, -1.0, 0.0)), vec3(0.2, 0.23, 0.35));\n"
+"    f_color.rgb += light(n, normalize(vec3(1.0, 0.0, 0.0)), vec3(0.23, 0.91, 0.12));\n"
+"    f_color.rgb += light(n, normalize(vec3(-1.0, 0.0, 0.0)), vec3(0.8, 0.23, 0.35));\n"
 
 "    f_color.a = 1.0;\n"
 "}\n";
@@ -166,40 +165,40 @@ static const char texturedQuadFragmentShader[] =
 /* Vertices for cube drawn with multiview. */
 GLfloat multiviewVertices[] =
 {   // Front face
-    -1.0f, -1.0f, -1.0f,
-     1.0f, -1.0f, -1.0f,
-     1.0f,  1.0f, -1.0f,
-    -1.0f,  1.0f, -1.0f,
+    -1.0f, -1.0f, 1.0f,
+     1.0f, -1.0f, 1.0f,
+     1.0f,  1.0f, 1.0f,
+    -1.0f,  1.0f, 1.0f,
 
     // Right face
-     1.0f, -1.0f, -1.0f,
      1.0f, -1.0f,  1.0f,
-     1.0f,  1.0f,  1.0f,
+     1.0f, -1.0f, -1.0f,
      1.0f,  1.0f, -1.0f,
+     1.0f,  1.0f,  1.0f,
 
      // Back face
-      1.0f, -1.0f,  1.0f,
-     -1.0f, -1.0f,  1.0f,
-     -1.0f,  1.0f,  1.0f,
-      1.0f,  1.0f,  1.0f,
+      1.0f, -1.0f,  -1.0f,
+     -1.0f, -1.0f,  -1.0f,
+     -1.0f,  1.0f,  -1.0f,
+      1.0f,  1.0f,  -1.0f,
 
       // Left face
-      -1.0f, -1.0f,  1.0f,
       -1.0f, -1.0f, -1.0f,
-      -1.0f,  1.0f, -1.0f,
+      -1.0f, -1.0f,  1.0f,
       -1.0f,  1.0f,  1.0f,
+      -1.0f,  1.0f, -1.0f,
 
       // Top face
-      -1.0f,  1.0f, -1.0f,
-       1.0f,  1.0f, -1.0f,
        1.0f,  1.0f,  1.0f,
+       1.0f,  1.0f, -1.0f,
+      -1.0f,  1.0f, -1.0f,
       -1.0f,  1.0f,  1.0f,
 
       // Bottom face
+      -1.0f, -1.0f, -1.0f,
+       1.0f, -1.0f, -1.0f,
        1.0f, -1.0f,  1.0f,
       -1.0f, -1.0f,  1.0f,
-      -1.0f, -1.0f, -1.0f,
-       1.0f, -1.0f, -1.0f
 };
 
 /* Normals for cube drawn with multiview. */
@@ -558,9 +557,8 @@ void renderToFBO(int width, int height)
     GL_CHECK(glEnableVertexAttribArray(multiviewVertexNormalLocation));
 
     /* Upload model view projection matrices. */
-
     GL_CHECK(glUniformMatrix4fv(multiviewModelViewProjectionLocation, 4, GL_FALSE, (const GLfloat*)&modelViewProjectionMatrix[0]));
-    GL_CHECK(glUniformMatrix4fv(multiviewModelLocation, 1, GL_FALSE, (const GLfloat*)& modelMatrix));
+    GL_CHECK(glUniformMatrix4fv(multiviewModelLocation, 1, GL_FALSE, (const GLfloat*)&modelMatrix));
 
     /* Draw a cube. */
     GL_CHECK(glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, multiviewIndices));
@@ -588,7 +586,7 @@ void renderToFBO(int width, int height)
     GL_CHECK(glUniformMatrix4fv(multiviewModelLocation, 1, GL_FALSE, (const GLfloat*)translatedModelMatrix));
     GL_CHECK(glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, multiviewIndices));
 
-    angle += 1;
+    angle += 0.1;
     if (angle > 360)
     {
         angle -= 360;
