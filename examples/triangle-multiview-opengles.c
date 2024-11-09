@@ -84,7 +84,6 @@ PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR glFramebufferTextureMultiviewOVR;
 static const char multiviewVertexShader[] =
 "#version 300 es\n"
 "#extension GL_OVR_multiview : enable\n"
-
 "layout(num_views = 4) in;\n"
 
 "in vec3 vertexPosition;\n"
@@ -535,6 +534,16 @@ void renderToFBO(int width, int height)
     /* Bind our framebuffer for rendering. */
     GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferObjectId));
 
+    // z3moon: test to see if this crashes
+    //GL_CHECK(glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE));
+    //GL_CHECK(glDepthMask(GL_TRUE))
+    //GLfloat clr[4] = { 0.0, 0.0, 0.0, 1.0 };
+    //GL_CHECK(glClearBufferfv(GL_COLOR, 0, clr));
+    //GL_CHECK(glClearBufferfv(GL_DEPTH, 0, clr));
+    //---
+
+    GL_CHECK(glClearColor(0.5f, 0.5f, 0.5f, 1.0f));
+    GL_CHECK(glClearDepthf(1.0));
     GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
 
     /* Rotating the cube. */
