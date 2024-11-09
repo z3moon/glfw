@@ -387,19 +387,17 @@ GLuint createProgram(const char* vertexSource, const char* fragmentSource)
 
 bool setupFBO(int width, int height)
 {
+    /* Initialize FBO. */
+    GL_CHECK(glGenFramebuffers(1, &frameBufferObjectId));
+    /* Bind our framebuffer for rendering. */
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufferObjectId));
+
     // Create array texture
     GL_CHECK(glGenTextures(1, &frameBufferTextureId));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferTextureId));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
     GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, width, height, 4));
-
-    /* Initialize FBO. */
-    GL_CHECK(glGenFramebuffers(1, &frameBufferObjectId));
-
-    /* Bind our framebuffer for rendering. */
-    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufferObjectId));
-
     /* Attach texture to the framebuffer. */
     GL_CHECK(glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
         frameBufferTextureId, 0, 0, 4));
@@ -408,7 +406,6 @@ bool setupFBO(int width, int height)
     GL_CHECK(glGenTextures(1, &frameBufferDepthTextureId));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferDepthTextureId));
     GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_DEPTH_COMPONENT24, width, height, 4));
-
     /* Attach depth texture to the framebuffer. */
     GL_CHECK(glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
         frameBufferDepthTextureId, 0, 0, 4));
