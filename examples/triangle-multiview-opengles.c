@@ -77,6 +77,11 @@ mat4x4 modelViewProjectionMatrix[4];
 mat4x4 modelMatrix;
 float angle = 0;
 
+// Test variables
+#define mipNums     4 // the number of mipmaps for the multiview FBO
+#define mipIndex    0 // the mipmap index to be used. this should be 0 <= mipIndex < mipNums.
+static_assert(0 <= mipIndex && mipIndex < mipNums);
+
 typedef void (*PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)(GLenum, GLenum, GLuint, GLint, GLint, GLsizei);
 PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR glFramebufferTextureMultiviewOVR;
 
@@ -397,18 +402,18 @@ bool setupFBO(int width, int height)
     GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferTextureId));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-    GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, width, height, 4));
+    GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, mipNums, GL_RGBA8, width, height, 4));
     /* Attach texture to the framebuffer. */
     GL_CHECK(glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-        frameBufferTextureId, 0, 0, 4));
+        frameBufferTextureId, mipIndex, 0, 4));
 
     /* Create array depth texture */
     GL_CHECK(glGenTextures(1, &frameBufferDepthTextureId));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferDepthTextureId));
-    GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_DEPTH_COMPONENT24, width, height, 4));
+    GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, mipNums, GL_DEPTH_COMPONENT24, width, height, 4));
     /* Attach depth texture to the framebuffer. */
     GL_CHECK(glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-        frameBufferDepthTextureId, 0, 0, 4));
+        frameBufferDepthTextureId, mipIndex, 0, 4));
 
     /* Check FBO is OK. */
     GLenum result = GL_CHECK(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER));
@@ -605,10 +610,16 @@ void renderToFBO(int width, int height)
 void renderFrame()
 {
     /*
+     * Calculate the size of the mipmap to be used.
+     */
+    GLuint fboMipWidth = fboWidth / (1 << mipIndex);
+    GLuint fboMipHeight = fboHeight / (1 << mipIndex);
+
+    /*
      * Render the scene to the multiview texture. This will render to 4 different layers of the texture,
      * using different projection and view matrices for each layer.
      */
-    renderToFBO(fboWidth, fboHeight);
+    renderToFBO(fboMipWidth, fboMipHeight);
 
     GL_CHECK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
     GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
@@ -625,6 +636,10 @@ void renderFrame()
         /* Use the texture array that was drawn to using multiview. */
         GL_CHECK(glActiveTexture(GL_TEXTURE0));
         GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferTextureId));
+
+        /* Use the specified mipmap level for this array texture. */
+        GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BASE_LEVEL, mipIndex));
+        GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, mipIndex));
 
         GL_CHECK(glUseProgram(texturedQuadProgram));
 
