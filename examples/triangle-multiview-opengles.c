@@ -53,8 +53,6 @@
 //---------------------------------------------------------------
 // Test variables
 #define MIP_NUMS     4 // the number of mipmaps for the multiview FBO
-#define MIP_INDEX    0 // the mipmap index to be used. this should be 0 <= mipIndex < mipNums.
-static_assert(0 <= MIP_INDEX && MIP_INDEX < MIP_NUMS);
 //---------------------------------------------------------------
 
 
@@ -626,7 +624,9 @@ void renderFrame()
      * Render the scene to the multiview texture. This will render to 4 different layers of the texture,
      * using different projection and view matrices for each layer.
      */
-    renderToFBO(MIP_INDEX);
+    for (int i = 0; i < MIP_NUMS; ++i) {
+        renderToFBO(i);
+    }
 
     GL_CHECK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
     GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
@@ -636,41 +636,51 @@ void renderFrame()
      * and will use two different texture layers from the multiview texture, one with a wide field of view
      * and one with a narrow field of view.
      */
-    for (int i = 0; i < 2; i++)
-    {
-        glViewport(i * screenWidth / 2, 0, screenWidth / 2, screenHeight);
+    float aspectRatio = (float)screenWidth / screenHeight;
 
-        /* Use the texture array that was drawn to using multiview. */
-        GL_CHECK(glActiveTexture(GL_TEXTURE0));
-        GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferTextureId));
+    int nextY = 0;
+    for (int curMip = 0; curMip < MIP_NUMS; ++curMip) {
+        int curMipDisplayWidth = screenWidth / (1 << (curMip+1));
+        int curMipDisplayHeight = screenHeight / (1 << (curMip+1));
+        int curX = 0;
+        int curY = nextY;
+        for (int i = 0; i < 2; i++)
+        {
+            glViewport(curX + (i * curMipDisplayWidth), curY, curMipDisplayWidth, curMipDisplayHeight);
 
-        /* Use the specified mipmap level for this array texture. */
-        GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BASE_LEVEL, MIP_INDEX));
-        GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, MIP_INDEX));
+            /* Use the texture array that was drawn to using multiview. */
+            GL_CHECK(glActiveTexture(GL_TEXTURE0));
+            GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferTextureId));
 
-        GL_CHECK(glUseProgram(texturedQuadProgram));
+            /* Use the specified mipmap level for this array texture. */
+            GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BASE_LEVEL, curMip));
+            GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, curMip));
 
-        /* Upload vertex attributes. */
-        GL_CHECK(glVertexAttribPointer(texturedQuadVertexLocation, 3, GL_FLOAT, GL_FALSE, 0, texturedQuadCoordinates));
-        GL_CHECK(glEnableVertexAttribArray(texturedQuadVertexLocation));
-        GL_CHECK(glVertexAttribPointer(texturedQuadLowResTexCoordLocation, 2, GL_FLOAT,
-            GL_FALSE, 0, texturedQuadLowResTexCoordinates));
-        GL_CHECK(glEnableVertexAttribArray(texturedQuadLowResTexCoordLocation));
-        GL_CHECK(glVertexAttribPointer(texturedQuadHighResTexCoordLocation, 2, GL_FLOAT,
-            GL_FALSE, 0, texturedQuadHighResTexCoordinates));
-        GL_CHECK(glEnableVertexAttribArray(texturedQuadHighResTexCoordLocation));
+            GL_CHECK(glUseProgram(texturedQuadProgram));
 
-        /*
-         * Upload uniforms. The layerIndex is used to choose what layer of the array texture to sample from.
-         * The shader will use the given layerIndex and layerIndex + 2, where layerIndex gives the layer with
-         * the wide field of view, where the entire scene has been rendered, and layerIndex + 2 gives the layer
-         * with the narrow field of view, where only the center of the scene has been rendered.
-         */
-        GL_CHECK(glUniform1i(texturedQuadSamplerLocation, 0));
-        GL_CHECK(glUniform1i(texturedQuadLayerIndexLocation, i));
+            /* Upload vertex attributes. */
+            GL_CHECK(glVertexAttribPointer(texturedQuadVertexLocation, 3, GL_FLOAT, GL_FALSE, 0, texturedQuadCoordinates));
+            GL_CHECK(glEnableVertexAttribArray(texturedQuadVertexLocation));
+            GL_CHECK(glVertexAttribPointer(texturedQuadLowResTexCoordLocation, 2, GL_FLOAT,
+                GL_FALSE, 0, texturedQuadLowResTexCoordinates));
+            GL_CHECK(glEnableVertexAttribArray(texturedQuadLowResTexCoordLocation));
+            GL_CHECK(glVertexAttribPointer(texturedQuadHighResTexCoordLocation, 2, GL_FLOAT,
+                GL_FALSE, 0, texturedQuadHighResTexCoordinates));
+            GL_CHECK(glEnableVertexAttribArray(texturedQuadHighResTexCoordLocation));
 
-        /* Draw textured quad using the multiview texture. */
-        GL_CHECK(glDrawArrays(GL_TRIANGLES, 0, 6));
+            /*
+             * Upload uniforms. The layerIndex is used to choose what layer of the array texture to sample from.
+             * The shader will use the given layerIndex and layerIndex + 2, where layerIndex gives the layer with
+             * the wide field of view, where the entire scene has been rendered, and layerIndex + 2 gives the layer
+             * with the narrow field of view, where only the center of the scene has been rendered.
+             */
+            GL_CHECK(glUniform1i(texturedQuadSamplerLocation, 0));
+            GL_CHECK(glUniform1i(texturedQuadLayerIndexLocation, i));
+
+            /* Draw textured quad using the multiview texture. */
+            GL_CHECK(glDrawArrays(GL_TRIANGLES, 0, 6));
+        }
+        nextY = curY + curMipDisplayHeight;
     }
 }
 
