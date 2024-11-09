@@ -509,8 +509,8 @@ bool setupGraphics(int width, int height)
     GL_CHECK(glViewport(0, 0, width, height));
 
     /* Setting up model view matrices for each of the */
-    vec3 leftCameraPos = { -1.5f, 0.0f, 5.0f };
-    vec3 rightCameraPos = { 1.5f, 0.0f, 5.0f };
+    vec3 leftCameraPos = { -1.5f, 2.0f, 5.0f };
+    vec3 rightCameraPos = { 1.5f, -2.0f, 5.0f };
     vec3 lookAt = { 0.0f, 0.0f, 0.0f };
     vec3 upVec = { 0.0f, 1.0f, 0.0f };
     mat4x4_look_at(viewMatrix[0], leftCameraPos, lookAt, upVec);
@@ -595,11 +595,11 @@ void renderToFBO(int width, int height)
     GL_CHECK(glUniformMatrix4fv(multiviewModelLocation, 1, GL_FALSE, (const GLfloat*)translatedModelMatrix));
     GL_CHECK(glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, multiviewIndices));
 
-    angle += 0.1;
-    if (angle > 360)
-    {
-        angle -= 360;
-    }
+    //angle += 0.1;
+    //if (angle > 360)
+    //{
+    //    angle -= 360;
+    //}
 
     /* Go back to the backbuffer for rendering to the screen. */
     GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
