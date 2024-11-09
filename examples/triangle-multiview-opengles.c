@@ -535,13 +535,19 @@ bool setupGraphics(int width, int height)
     return true;
 }
 
-void renderToFBO(int width, int height)
+void renderToFBO(int mipIndex)
 {
+    /*
+     * Calculate the size of the mipmap to be used.
+     */
+    GLuint fboMipWidth = fboWidth / (1 << mipIndex);
+    GLuint fboMipHeight = fboHeight / (1 << mipIndex);
+
     /* Rendering to FBO. */
-    GL_CHECK(glViewport(0, 0, width, height));
+    GL_CHECK(glViewport(0, 0, fboMipWidth, fboMipHeight));
 
     /* Bind our framebuffer for rendering. */
-    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferObjectId[MIP_INDEX]));
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferObjectId[mipIndex]));
 
     // z3moon: test to see if this crashes
     //GL_CHECK(glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE));
@@ -617,16 +623,10 @@ void renderToFBO(int width, int height)
 void renderFrame()
 {
     /*
-     * Calculate the size of the mipmap to be used.
-     */
-    GLuint fboMipWidth = fboWidth / (1 << MIP_INDEX);
-    GLuint fboMipHeight = fboHeight / (1 << MIP_INDEX);
-
-    /*
      * Render the scene to the multiview texture. This will render to 4 different layers of the texture,
      * using different projection and view matrices for each layer.
      */
-    renderToFBO(fboMipWidth, fboMipHeight);
+    renderToFBO(MIP_INDEX);
 
     GL_CHECK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
     GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
