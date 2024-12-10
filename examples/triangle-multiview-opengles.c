@@ -559,11 +559,31 @@ void renderToFBO(int mipIndex)
     GL_CHECK(glClearDepthf(1.0));
     GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
 
-    /* Rotating the cube. */
+    // Rotating the cube. To ensure that each mipmap level is correctly rendered, rotate the cube
+    // differently for each mipmap level.
     float angleRad = M_PI * angle / 180.0f;
     mat4x4_identity(modelMatrix);
-    mat4x4_rotate_Y(modelMatrix, modelMatrix, angleRad);
-    mat4x4_rotate_X(modelMatrix, modelMatrix, angleRad * 1.5f);
+    switch (mipIndex) {
+      case 0:
+        // do nothing
+        break;
+      case 1:
+        // rotate along the X-axis for the mipmap level 1
+        mat4x4_rotate_X(modelMatrix, modelMatrix, angleRad);
+        break;
+      case 2:
+        // rotate along the Y-axis for the mipmap level 2
+        mat4x4_rotate_Y(modelMatrix, modelMatrix, angleRad);
+        break;
+      case 3:
+        // rotate along the Z-axis for the mipmap level 3
+        mat4x4_rotate_Z(modelMatrix, modelMatrix, angleRad);
+        break;
+    }
+    angle += 0.5;
+    if (angle > 360) {
+        angle -= 360;
+    }
 
     mat4x4_mul(modelViewProjectionMatrix[0], viewProjectionMatrix[0], modelMatrix);
     mat4x4_mul(modelViewProjectionMatrix[1], viewProjectionMatrix[1], modelMatrix);
@@ -607,12 +627,6 @@ void renderToFBO(int mipIndex)
     GL_CHECK(glUniformMatrix4fv(multiviewModelViewProjectionLocation, 4, GL_FALSE, (const GLfloat*)&modelViewProjectionMatrix[0]));
     GL_CHECK(glUniformMatrix4fv(multiviewModelLocation, 1, GL_FALSE, (const GLfloat*)translatedModelMatrix));
     GL_CHECK(glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, multiviewIndices));
-
-    //angle += 0.1;
-    //if (angle > 360)
-    //{
-    //    angle -= 360;
-    //}
 
     /* Go back to the backbuffer for rendering to the screen. */
     GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
