@@ -77,6 +77,13 @@ GLuint texturedQuadHighResTexCoordLocation;
 GLuint texturedQuadSamplerLocation;
 GLuint texturedQuadLayerIndexLocation;
 
+GLuint depthProgram;
+GLuint depthVertexLocation;
+GLuint depthTexCoordLocation;
+GLuint depthSamplerLocation;
+GLuint depthLayerIndexLocation;
+GLuint depthContrastPowerLocation; // depth contents are hardly seen. This makes depth values more distinct.
+
 mat4x4 projectionMatrix[4];
 mat4x4 viewMatrix[4];
 mat4x4 viewProjectionMatrix[4];
@@ -166,6 +173,37 @@ static const char texturedQuadFragmentShader[] =
 "    // When the distance is less than 0.2 (0.04 is 0.2 squared), only the high res texture will be used.\n"
 "    float lerpVal = smoothstep(-0.25, -0.04, -squaredDist);\n"
 "    fragColor = mix(lowResSample, highResSample, lerpVal);\n"
+"}\n";
+
+// depth vertexShader
+static const char  depthVertexShader[] =
+"#version 300 es\n"
+"in vec3 attributePosition;\n"
+"in vec2 attributeTexCoord;\n"
+"out vec2 vTexCoord;\n"
+"void main()\n"
+"{\n"
+"    vTexCoord = attributeTexCoord;\n"
+"    gl_Position = vec4(attributePosition, 1.0);\n"
+"}\n";
+
+// depth fragmentShader
+static const char depthFragmentShader[] =
+"#version 300 es\n"
+"precision mediump float;\n"
+"precision mediump int;\n"
+"precision mediump sampler2DArray;\n"
+"in vec2 vTexCoord;\n"
+"out vec4 fragColor;\n"
+"uniform sampler2DArray depthTex;\n"
+"uniform int depthLayerIndex;\n"
+"uniform float depthContrastPower;\n"
+"void main()\n"
+"{\n"
+"    highp float c = textureLod(depthTex, vec3(vTexCoord, float(depthLayerIndex)), 0.0).r;\n"
+"    c = pow(abs(c), depthContrastPower);\n"
+"    fragColor.rgb = vec3(c);\n"
+"    fragColor.a = 1.0;\n"
 "}\n";
 
 /* Vertices for cube drawn with multiview. */
@@ -499,6 +537,19 @@ bool setupGraphics(int width, int height)
     multiviewModelViewProjectionLocation = GL_CHECK(glGetUniformLocation(multiviewProgram, "modelViewProjection"));
     multiviewModelLocation = GL_CHECK(glGetUniformLocation(multiviewProgram, "model"));
 
+    // Creating program for drawing depth
+    depthProgram = createProgram(depthVertexShader, depthFragmentShader);
+    if (depthProgram == 0) {
+        LOGE("Could not create depth program");
+        return false;
+    }
+    // Get attributes and uniform locations for depth program.
+    depthVertexLocation = GL_CHECK(glGetAttribLocation(depthProgram, "attributePosition"));
+    depthTexCoordLocation = GL_CHECK(glGetAttribLocation(depthProgram, "attributeTexCoord"));
+    depthSamplerLocation = GL_CHECK(glGetUniformLocation(depthProgram, "depthTex"));
+    depthLayerIndexLocation = GL_CHECK(glGetUniformLocation(depthProgram, "depthLayerIndex"));
+    depthContrastPowerLocation = GL_CHECK(glGetUniformLocation(depthProgram, "depthContrastPower"));
+
     /*
      * Set up the perspective matrices for each view. Rendering is done twice in each eye position with different
      * field of view. The narrower field of view should give half the size for the near plane in order to
@@ -658,6 +709,10 @@ void renderFrame()
         int curMipDisplayHeight = screenHeight / (1 << (curMip+1));
         int curX = 0;
         int curY = nextY;
+
+        curMipDisplayWidth /= 2; // To make room for depth rendering, we recude the width in half.
+
+        // Color rendering
         for (int i = 0; i < 2; i++)
         {
             glViewport(curX + (i * curMipDisplayWidth), curY, curMipDisplayWidth, curMipDisplayHeight);
@@ -694,6 +749,34 @@ void renderFrame()
             /* Draw textured quad using the multiview texture. */
             GL_CHECK(glDrawArrays(GL_TRIANGLES, 0, 6));
         }
+
+        // Detph rendering
+        curX += (curMipDisplayWidth * 2); // Depth rendering starts right next to the color rendering above.
+        curMipDisplayWidth /= 2; // We need to draw 4 layers of an array texture (depth), so cut the width in half to fit in.
+
+        for (int i = 0; i < 4; i++) {
+            glViewport(curX + (i * curMipDisplayWidth), curY, curMipDisplayWidth, curMipDisplayHeight);
+            // Use the texture array that was drawn to using multiview.
+            GL_CHECK(glActiveTexture(GL_TEXTURE0));
+            GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferDepthTextureId));
+            // Use the specified mipmap level for this array texture.
+            GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BASE_LEVEL, curMip));
+            GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, curMip));
+            // Use depth program
+            GL_CHECK(glUseProgram(depthProgram));
+            // Upload vertex attributes
+            GL_CHECK(glVertexAttribPointer(depthVertexLocation, 3, GL_FLOAT, GL_FALSE, 0, texturedQuadCoordinates));
+            GL_CHECK(glEnableVertexAttribArray(depthVertexLocation));
+            GL_CHECK(glVertexAttribPointer(depthTexCoordLocation, 2, GL_FLOAT, GL_FALSE, 0, texturedQuadLowResTexCoordinates));
+            GL_CHECK(glEnableVertexAttribArray(depthTexCoordLocation));
+            // Upload uniforms
+            GL_CHECK(glUniform1i(depthSamplerLocation, 0));
+            GL_CHECK(glUniform1i(depthLayerIndexLocation, i));
+            GL_CHECK(glUniform1f(depthContrastPowerLocation, 8.0)); // Make depth values more distinct.
+            // Draw depth textured quad with multiview.
+            GL_CHECK(glDrawArrays(GL_TRIANGLES, 0, 6));
+        }
+
         nextY = curY + curMipDisplayHeight;
     }
 }
