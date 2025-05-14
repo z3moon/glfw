@@ -91,7 +91,7 @@ mat4x4 modelViewProjectionMatrix[4];
 mat4x4 modelMatrix;
 float angle = 0;
 
-typedef void (*PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)(GLenum, GLenum, GLuint, GLint, GLint, GLsizei);
+typedef void (*PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint baseViewIndex, GLsizei numViews);
 PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR glFramebufferTextureMultiviewOVR;
 
 /* Multiview vertexShader */
