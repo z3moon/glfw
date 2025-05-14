@@ -54,7 +54,7 @@
 // Test variables
 #define MIP_NUMS      4 // the number of mipmaps for the multiview FBO
 
-#define USE_MSAA      1 // 1=true, 0=false
+#define USE_MSAA      0 // 1=true, 0=false
 #define MSAA_SAMPLES  2 // the number of samples for MSAA
 //---------------------------------------------------------------
 

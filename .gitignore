@@ -1,6 +1,7 @@
 # z3moon: my .gitignore settings
 .idea
 cmake-build-*
+out/
 
 # The canonical out-of-tree build subdirectory
 build
