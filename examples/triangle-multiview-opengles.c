@@ -52,7 +52,10 @@
 
 //---------------------------------------------------------------
 // Test variables
-#define MIP_NUMS     4 // the number of mipmaps for the multiview FBO
+#define MIP_NUMS      4 // the number of mipmaps for the multiview FBO
+
+#define USE_MSAA      1 // 1=true, 0=false
+#define MSAA_SAMPLES  2 // the number of samples for MSAA
 //---------------------------------------------------------------
 
 
@@ -91,13 +94,21 @@ mat4x4 modelViewProjectionMatrix[4];
 mat4x4 modelMatrix;
 float angle = 0;
 
+#if USE_MSAA
+typedef void (*PFNGLFRAMEBUFFERTEXTUREMULTISAMPLEMULTIVIEWOVRPROC)(GLenum target, GLenum attachment, GLuint texture, GLint level, GLsizei samples, GLint baseViewIndex, GLsizei numViews);
+PFNGLFRAMEBUFFERTEXTUREMULTISAMPLEMULTIVIEWOVRPROC glFramebufferTextureMultisampleMultiviewOVR;
+#else
 typedef void (*PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint baseViewIndex, GLsizei numViews);
 PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR glFramebufferTextureMultiviewOVR;
+#endif
 
 /* Multiview vertexShader */
 static const char multiviewVertexShader[] =
 "#version 300 es\n"
-"#extension GL_OVR_multiview : enable\n"
+"#extension GL_OVR_multiview : require\n"
+//#if USE_MSAA
+//"#extension GL_OVR_multiview_multisampled_render_to_texture : require\n"
+//#endif
 "layout(num_views = 4) in;\n"
 
 "in vec3 vertexPosition;\n"
@@ -450,12 +461,22 @@ bool setupFBO(int width, int height)
         GL_CHECK(glGenFramebuffers(1, &frameBufferObjectId[i]));
         /* Bind our framebuffer for rendering. */
         GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufferObjectId[i]));
+
+#if USE_MSAA
+        /* Attach texture for the current mipmap level to the framebuffer. */
+        GL_CHECK(glFramebufferTextureMultisampleMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+            frameBufferTextureId, i, MSAA_SAMPLES, 0, 4));
+        /* Attach depth texture for the current mipmap level to the framebuffer. */
+        GL_CHECK(glFramebufferTextureMultisampleMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+            frameBufferDepthTextureId, i, MSAA_SAMPLES, 0, 4));
+#else
         /* Attach texture for the current mipmap level to the framebuffer. */
         GL_CHECK(glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
             frameBufferTextureId, i, 0, 4));
         /* Attach depth texture for the current mipmap level to the framebuffer. */
         GL_CHECK(glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
             frameBufferDepthTextureId, i, 0, 4));
+#endif
     }
 
     /* Check FBO is OK. */
@@ -476,22 +497,38 @@ bool setupGraphics(int width, int height)
      * Make sure the required multiview extension is present.
      */
     const GLubyte* extensions = GL_CHECK(glGetString(GL_EXTENSIONS));
+
+#if USE_MSAA
+    const char* found_extension = strstr((const char*)extensions, "GL_OVR_multiview_multisampled_render_to_texture");
+    if (!found_extension)
+    {
+        LOGI("OpenGL ES 3.0 implementation does not support GL_OVR_multiview_multisampled_render_to_texture extension.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    glFramebufferTextureMultisampleMultiviewOVR =
+        (PFNGLFRAMEBUFFERTEXTUREMULTISAMPLEMULTIVIEWOVRPROC)glfwGetProcAddress("glFramebufferTextureMultisampleMultiviewOVR");
+    if (!glFramebufferTextureMultisampleMultiviewOVR)
+    {
+        LOGI("Can not get proc address for glFramebufferTextureMultisampleMultiviewOVR.\n");
+        exit(EXIT_FAILURE);
+    }
+#else
     const char* found_extension = strstr((const char*)extensions, "GL_OVR_multiview");
-    if (NULL == found_extension)
+    if (!found_extension)
     {
         LOGI("OpenGL ES 3.0 implementation does not support GL_OVR_multiview extension.\n");
         exit(EXIT_FAILURE);
     }
-    else
+
+    glFramebufferTextureMultiviewOVR =
+        (PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)glfwGetProcAddress("glFramebufferTextureMultiviewOVR");
+    if (!glFramebufferTextureMultiviewOVR)
     {
-        glFramebufferTextureMultiviewOVR =
-            (PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVR)glfwGetProcAddress("glFramebufferTextureMultiviewOVR");
-        if (!glFramebufferTextureMultiviewOVR)
-        {
-            LOGI("Can not get proc address for glFramebufferTextureMultiviewOVR.\n");
-            exit(EXIT_FAILURE);
-        }
+        LOGI("Can not get proc address for glFramebufferTextureMultiviewOVR.\n");
+        exit(EXIT_FAILURE);
     }
+#endif
 
     /* Enable culling and depth testing. */
     GL_CHECK(glDisable(GL_CULL_FACE));
