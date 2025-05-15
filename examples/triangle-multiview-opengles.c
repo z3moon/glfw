@@ -819,6 +819,16 @@ void renderFrame()
     }
 }
 
+void releaseGraphics()
+{
+    for (int i = 0; i < MIP_NUMS; ++i)
+    {
+        GL_CHECK(glDeleteFramebuffers(1, &frameBufferObjectId[i]));
+    }
+    GL_CHECK(glDeleteTextures(1, &frameBufferDepthTextureId));
+    GL_CHECK(glDeleteTextures(1, &frameBufferTextureId));
+}
+
 static void error_callback(int error, const char* description)
 {
     LOGE("GLFW Error: %s\n", description);
@@ -871,6 +881,8 @@ int main(void)
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+
+    releaseGraphics();
 
     glfwDestroyWindow(window);
 
