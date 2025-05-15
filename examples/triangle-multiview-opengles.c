@@ -485,8 +485,6 @@ bool setupFBO(int width, int height)
         if (result != GL_FRAMEBUFFER_COMPLETE)
         {
             LOGE("Framebuffer incomplete at %s:%i\n", __FILE__, __LINE__);
-            /* Unbind framebuffer. */
-            GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
             return false;
         }
     }
