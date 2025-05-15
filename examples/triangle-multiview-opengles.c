@@ -636,7 +636,7 @@ void renderToFBO(int mipIndex)
     GL_CHECK(glViewport(0, 0, fboMipWidth, fboMipHeight));
 
     /* Bind our framebuffer for rendering. */
-    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferObjectId[mipIndex]));
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufferObjectId[mipIndex]));
 
     // z3moon: test to see if this crashes
     //GL_CHECK(glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE));
@@ -720,7 +720,7 @@ void renderToFBO(int mipIndex)
     GL_CHECK(glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, multiviewIndices));
 
     /* Go back to the backbuffer for rendering to the screen. */
-    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 }
 
 void renderFrame()
