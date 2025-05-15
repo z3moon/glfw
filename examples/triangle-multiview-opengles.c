@@ -449,11 +449,13 @@ bool setupFBO(int width, int height)
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
     GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, MIP_NUMS, GL_RGBA8, width, height, 4));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, 0));
 
     /* Create array depth texture */
     GL_CHECK(glGenTextures(1, &frameBufferDepthTextureId));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, frameBufferDepthTextureId));
     GL_CHECK(glTexStorage3D(GL_TEXTURE_2D_ARRAY, MIP_NUMS, GL_DEPTH_COMPONENT24, width, height, 4));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D_ARRAY, 0));
 
     /* Create framebuffers */
     for (int i = 0; i < MIP_NUMS; ++i) {
@@ -477,17 +479,18 @@ bool setupFBO(int width, int height)
         GL_CHECK(glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
             frameBufferDepthTextureId, i, 0, 4));
 #endif
+        /* Check FBO is OK. */
+        GLenum result = GL_CHECK(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER));
+        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+        if (result != GL_FRAMEBUFFER_COMPLETE)
+        {
+            LOGE("Framebuffer incomplete at %s:%i\n", __FILE__, __LINE__);
+            /* Unbind framebuffer. */
+            GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+            return false;
+        }
     }
 
-    /* Check FBO is OK. */
-    GLenum result = GL_CHECK(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER));
-    if (result != GL_FRAMEBUFFER_COMPLETE)
-    {
-        LOGE("Framebuffer incomplete at %s:%i\n", __FILE__, __LINE__);
-        /* Unbind framebuffer. */
-        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
-        return false;
-    }
     return true;
 }
 
